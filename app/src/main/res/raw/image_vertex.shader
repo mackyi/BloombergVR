@@ -10,7 +10,7 @@ varying vec3 v_Position;        // This will be passed into the fragment shader.
 varying vec4 v_Color;           // This will be passed into the fragment shader.
 varying vec3 v_Normal;          // This will be passed into the fragment shader.
 varying vec2 v_TexCoordinate;   // This will be passed into the fragment shader.
- 
+
 // The entry point for our vertex shader.
 void main()
 {
