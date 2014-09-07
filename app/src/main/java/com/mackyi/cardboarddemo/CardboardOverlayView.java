@@ -22,6 +22,7 @@ public class CardboardOverlayView extends LinearLayout {
     private final CardboardOverlayEyeView mLeftView;
     private final CardboardOverlayEyeView mRightView;
     private AlphaAnimation mTextFadeAnimation;
+    private AlphaAnimation mQuickTextFadeAnimation;
 
     public CardboardOverlayView(Context context, AttributeSet attrs) {
         super(context, attrs);
@@ -46,6 +47,21 @@ public class CardboardOverlayView extends LinearLayout {
 
         mTextFadeAnimation = new AlphaAnimation(1.0f, 0.0f);
         mTextFadeAnimation.setDuration(5000);
+
+        mQuickTextFadeAnimation = new AlphaAnimation(1.0f, 0.0f);
+        mQuickTextFadeAnimation.setDuration(500);
+    }
+
+    public void showQuickToast(String message) {
+        setText(message);
+        setTextAlpha(1f);
+        mTextFadeAnimation.setAnimationListener(new EndAnimationListener() {
+            @Override
+            public void onAnimationEnd(Animation animation) {
+                setTextAlpha(0f);
+            }
+        });
+        startAnimation(mQuickTextFadeAnimation);
     }
 
     public void show3DToast(String message) {

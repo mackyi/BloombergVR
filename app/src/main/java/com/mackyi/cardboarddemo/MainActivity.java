@@ -142,6 +142,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
     private Bitmap searchBMap;
 
+    private float prevAngle;
 
     public enum ScrollStatus{
         MIDDLE,
@@ -257,6 +258,8 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
             Log.e(TAG,  "error " +  error);
             if(error == 7){
                 mOverlayView.show3DToast("No matches.");
+            } else if(error != 8){
+                mOverlayView.show3DToast("Speech recognition failed.");
             }
         }
         public void onResults(Bundle results)
@@ -264,11 +267,13 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
             String str = new String();
             Log.e(TAG, "onResults " + results);
             ArrayList<String> data = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+            if(data != null && !data.isEmpty()){
             String s = data.get(0);
-            if(s.contains(".")){
+
+                if(s.contains(".")){
                 s = "http://" + s.replace(" ", "");
                 mOverlayView.show3DToast("Navigating to: " + s);
-            }else{
+            } else{
                 s = s.replace(" ", "+");
                 mOverlayView.show3DToast("Searching for: " + s);
                 s = "http://www.google.com/#q="+s;
@@ -276,7 +281,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
             Log.e(TAG, s);
             bestTab.mWebView.loadUrl(s);
             Log.e(TAG, tabs.toString());
-            tabs.get(0).mWebView.loadUrl(s);
+            tabs.get(0).mWebView.loadUrl(s);}
         }
         public void onPartialResults(Bundle partialResults)
         {
@@ -311,7 +316,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     @Override
     public void onSurfaceCreated(EGLConfig config) {
         Log.i(TAG, "onSurfaceCreated");
-        GLES20.glClearColor(0.1f, 0.1f, 0.1f, 0.5f); // Dark background so text shows up well
+        GLES20.glClearColor(1.0f, 1.0f, 1.0f, 0.5f); // Dark background so text shows up well
 
         ByteBuffer bbVertices = ByteBuffer.allocateDirect(DATA.CUBE_COORDS.length * 4);
         bbVertices.order(ByteOrder.nativeOrder());
@@ -493,21 +498,21 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
         mPositionParam = GLES20.glGetAttribLocation(mGlProgram, "a_Position");
         mPositionParam2 = GLES20.glGetAttribLocation(mGlProgram2, "a_Position");
-        mPositionParam3 = GLES20.glGetAttribLocation(mGlProgram3, "a_Position");
+        // mPositionParam3 = GLES20.glGetAttribLocation(mGlProgram3, "a_Position");
         mNormalParam = GLES20.glGetAttribLocation(mGlProgram, "a_Normal");
         mColorParam = GLES20.glGetAttribLocation(mGlProgram, "a_Color");
         mColorParam2 = GLES20.glGetAttribLocation(mGlProgram2, "a_Color");
         mUVParam = GLES20.glGetAttribLocation(mGlProgram2, "a_uv");
-        mUVParam2 = GLES20.glGetAttribLocation(mGlProgram3, "a_uv");
+        // mUVParam2 = GLES20.glGetAttribLocation(mGlProgram3, "a_uv");
 
         GLES20.glEnableVertexAttribArray(mPositionParam);
         GLES20.glEnableVertexAttribArray(mPositionParam2);
-        GLES20.glEnableVertexAttribArray(mPositionParam3);
+        // GLES20.glEnableVertexAttribArray(mPositionParam3);
         GLES20.glEnableVertexAttribArray(mNormalParam);
         GLES20.glEnableVertexAttribArray(mColorParam);
         GLES20.glEnableVertexAttribArray(mColorParam2);
         GLES20.glEnableVertexAttribArray(mUVParam);
-        GLES20.glEnableVertexAttribArray(mUVParam2);
+        // GLES20.glEnableVertexAttribArray(mUVParam2);
         checkGLError("mColorParam");
 
         // Apply the eye transformation to the camera.
@@ -576,13 +581,13 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 //        }
         GLES20.glVertexAttribPointer(mUVParam, 2, GLES20.GL_FLOAT, false, 0, mCubeUVs);
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 36);
-
-
-        GLES20.glUseProgram(mGlProgram3);
-        GLES20.glUniformMatrix4fv(mModelViewProjectionParam3, 1, false, mModelViewProjection, 0);
-        GLES20.glVertexAttribPointer(mPositionParam3, COORDS_PER_VERTEX, GLES20.GL_FLOAT,
-                false, 0, mSearchVertices);
-        GLES20.glVertexAttribPointer(mUVParam2, 2, GLES20.GL_FLOAT, false, 0, searchUVs);
+        GLES10.glBindTexture( GLES11Ext.GL_TEXTURE_EXTERNAL_OES, 0 );
+//
+//        GLES20.glUseProgram(mGlProgram3);
+//        GLES20.glUniformMatrix4fv(mModelViewProjectionParam3, 1, false, mModelViewProjection, 0);
+//        GLES20.glVertexAttribPointer(mPositionParam3, COORDS_PER_VERTEX, GLES20.GL_FLOAT,
+//                false, 0, mSearchVertices);
+//        GLES20.glVertexAttribPointer(mUVParam2, 2, GLES20.GL_FLOAT, false, 0, searchUVs);
         // GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 6);
 
         checkGLError("Drawing cube");
@@ -615,7 +620,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         if (tabs == null || tabs.size() == 0) {
             return null;
         }
-        float best_angle = 1;
+        float best_angle = -1;
         int best_tab = 0;
         float[] mOwnView = new float[16];
         float[] centerOfCube = new float[4];
@@ -628,14 +633,14 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
             centerOfCube_3[1] = centerOfCube[1];
             centerOfCube_3[2] = centerOfCube[2];
             float angle = Main.getCos(Main.subtract(centerOfView, eye), centerOfCube_3);
-            if (angle < best_angle) {
+            if (angle > best_angle) {
                 best_tab = i;
                 best_angle = angle;
             }
         }
         return tabs.get(best_tab);
     }
-    public boolean inBounds(Tab t, float[] eye, float[] centerOfView) {
+    public int inBounds(Tab t, float[] eye, float[] centerOfView) {
         float[] viewLine = Main.subtract(centerOfView, eye);
         float[] obj = new float[9];
         for (int i = 0; i < obj.length; i++) {
@@ -654,7 +659,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         line[5] = centerOfView[2];
         float[] p = Main.getIntersection(transObj, line);
         if (p==null)
-            return false;
+            return 0;
         float[] utM = new float[16];
         Matrix.invertM(utM, 0, mOwnView, 0);
         float[] p2 = new float[4];
@@ -673,18 +678,20 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         Matrix.multiplyMV(point, 0, utM, 0, p2, 0);
 
         String str = String.format("(%f, %f, %f", point[0], point[1], point[2]);
-        Log.i("CubeBound Pos:", str);
+        //Log.i("CubeBound Pos:", str);
         //Utils.simulateTouch(this.getCardboardView(), pointX, pointY);
         // Always give user feedback
         float[] xy = Utils.getXY(untranslated, point);
 
-        Log.d("Bound pos: ", String.format("%f, %f, %f, %f", xy[0], xy[1], xy[2], xy[3]));
+        //Log.d("Bound pos: ", String.format("%f, %f, %f, %f", xy[0], xy[1], xy[2], xy[3]));
 
         // safe boundary of 1f
-        if (xy[1] < -1f || xy[1] > xy[3] + 1f) {
-            return false;
+        if (xy[1] < -1f)
+            return 1;
+        else if (xy[1] > xy[3] + 1f) {
+            return -1;
         }
-        return true;
+        return 0;
     }
     /**
      * Increment the score, hide the object, and give feedback if the user pulls the magnet while
@@ -692,23 +699,25 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
      */
     @Override
     public void onCardboardTrigger() {
-        long timeClicked = System.currentTimeMillis();
         Log.i(TAG, "onCardboardTrigger");
+        // mOverlayView.show3DToast("+");
         float[] eye = {0, 0, CAMERA_Z};
         float[] centerOfView = {0,0,0};
-        if(tabs.size() == 0 || timeClicked - oldTime < 1000){
+        if (tabs.size() == 0) {
             addNewTab();
         } else {
             bestTab = getTab(tabs, eye, centerOfView);
-            if(inBounds(bestTab, eye, centerOfView)) {
-                processClick(bestTab);
-            } else {
-                Log.d("Speech", "SPEECH MODE DUMMY OUTPUT");
+            int val = inBounds(bestTab, eye, centerOfView);
+            if(val == 1) {
+                //Log.d("Speech", "SPEECH MODE DUMMY OUTPUT");
                 startVoiceRecognitionActivity();
-                // put your speech call here
+            } else if (val == -1) {
+                addNewTab();
+            } else {
+                processClick(bestTab);
             }
         }
-        oldTime = timeClicked;
+
         /*if (!isLookingAtObject()) {
 //            mScore++;
 //            mOverlayView.show3DToast("Found it! Look around for another one.\nScore = " + mScore);
@@ -732,7 +741,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         Matrix.multiplyMM(mOwnView, 0, mView, 0, tab.mModelCube, 0); // don't need to map to eye frame
         float[] transObj = Utils.getTransformedObj(mOwnView, obj, center);
 
-        Log.i("Points: ", Arrays.toString(transObj));
+        //Log.i("Points: ", Arrays.toString(transObj));
         float[] line = {0f, 0f, CAMERA_Z, 0f, 0f, 0f};
         float[] p = Main.getIntersection(transObj, line);
         if (p==null)
@@ -751,19 +760,19 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         }
         Matrix.multiplyMV(untranslated, 0, utM, 0, transObj, 0);
         String str2 = String.format("(%f, %f, %f", untranslated[0], untranslated[1], untranslated[2]);
-        Log.i("Point Pos: ", str2);
+        //Log.i("Point Pos: ", str2);
 
         Matrix.multiplyMV(point, 0, utM, 0, p2, 0);
         if (point != null) {
             String str = String.format("(%f, %f, %f", point[0], point[1], point[2]);
-            Log.i("Click Pos:", str);
+            //Log.i("Click Pos:", str);
         }
         //Utils.simulateTouch(this.getCardboardView(), pointX, pointY);
         // Always give user feedback
         Display d = getWindowManager().getDefaultDisplay();
         int w = tab.mWebView.getWidth();
         int h = tab.mWebView.getHeight();
-        Log.d("Dim: ", String.format("%d, %d", w, h));
+        //Log.d("Dim: ", String.format("%d, %d", w, h));
         float[] xy = Utils.getXY(untranslated, point);
 
         Log.d("click pos: ", String.format("%f, %f, %f, %f", xy[0], xy[1], xy[2], xy[3]));
@@ -797,9 +806,10 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 //    }
 
     private void addNewTab() {
+        if(tabs.size() == MAX_TABS) return;
         Tab newTab = new Tab(this);
         newTab.setTextures(createSurfaceTexture(TEXTURE_WIDTH, TEXTURE_HEIGHT, tabs.size()));
-        newTab.mWebView.loadUrl("https://www.reddit.com");
+        newTab.mWebView.loadUrl("http://www.cnn.com");
         tabs.add(newTab);
         float[] rotationMatrix = new float[16];
         float[] posVec = new float[4];
@@ -891,7 +901,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         float pitch = (float)Math.atan2(objPositionVec[1], -objPositionVec[2]);
         float yaw = (float)Math.atan2(objPositionVec[0], -objPositionVec[2]);
 
-        if( Math.abs(pitch) > PITCH_LIMIT * 2 && (Math.abs(yaw) < YAW_LIMIT*22)) {
+        if( Math.abs(pitch) > PITCH_LIMIT * 2 && Math.abs(pitch) < PITCH_LIMIT * 5 && (Math.abs(yaw) < YAW_LIMIT*22)) {
             if(objPositionVec[1] > 0) {
                 return ScrollStatus.BELOW;
             } else {
@@ -908,6 +918,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         Surface surface;
         int scrollSpeed;
         Handler mHandler;
+        boolean scrollEnable = false;
 
         public CustomWebView(Context context) {
             super(context);
@@ -916,7 +927,14 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
             getSettings().setUserAgentString(newUA);
             setWebChromeClient(new WebChromeClient() {
             });
-            setWebViewClient(new WebViewClient());
+            setWebViewClient(new WebViewClient() {
+                @Override
+                public void onPageFinished(WebView view, String url) {
+                    super.onPageFinished(view, url);
+                    scrollEnable = true;
+                    Log.e(TAG,"Scroll enabled");
+                }
+            });
 
             setLayoutParams(new ViewGroup.LayoutParams(TEXTURE_WIDTH, TEXTURE_HEIGHT));
             mHandler = new Handler();
@@ -934,6 +952,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
         private class Scroller implements Runnable {
             CustomWebView webView;
+            int distance = 0;
 
             public Scroller(CustomWebView webView) {
                 this.webView = webView;
@@ -942,7 +961,17 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
             {
                 int height = (int) Math.floor(webView.getContentHeight() * webView.getScale());
                 int webViewHeight = webView.getMeasuredHeight();
-                webView.scrollBy(0, webView.scrollSpeed);
+
+                if(webView.scrollEnable){
+                    if(webView.scrollSpeed > 0){
+                        if(scrollSpeed < distance){
+                            webView.scrollBy(0, webView.scrollSpeed);
+                        }
+                    } else {
+                        distance += -webView.scrollSpeed;
+                        webView.scrollBy(0, webView.scrollSpeed);
+                    }
+                }
 //
 //                if( scrollSpeed < 0) {
 //                    int diff = height - (webView.getScrollY() + webViewHeight);
@@ -1050,10 +1079,10 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data)
     {
-        Log.e(TAG, "back from speech");
+        //Log.e(TAG, "back from speech");
         if (requestCode == REQUEST_CODE && resultCode == RESULT_OK)
         {
-            Log.e(TAG, "back from speech ok");
+            //Log.e(TAG, "back from speech ok");
             // Populate the wordsList with the String values the recognition engine thought it heard
             ArrayList<String> matches = data.getStringArrayListExtra(
                     RecognizerIntent.EXTRA_RESULTS);
@@ -1116,5 +1145,12 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     protected void onPause() {
         super.onPause();
         getCardboardView().onPause();
+    }
+
+    protected void onDestroy() {
+        if(sr!=null){
+            sr.destroy();
+        }
+        super.onDestroy();
     }
 }
