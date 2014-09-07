@@ -787,7 +787,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
     public void onSensorChanged(SensorEvent e) {
 		float x_accel = e.values[0];
-		if (x_accel > 25) {
+		if (Math.abs(x_accel) > 25) {
 			addNewTab();
 		}
 	}
