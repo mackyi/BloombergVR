@@ -5,6 +5,7 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
+import android.graphics.Point;
 import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
 import android.opengl.GLES10;
@@ -16,13 +17,15 @@ import android.os.Bundle;
 import android.os.Vibrator;
 import android.speech.RecognizerIntent;
 import android.util.Log;
+import android.view.Display;
+import android.view.MotionEvent;
 import android.view.Surface;
 import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.WebChromeClient;
 import android.webkit.WebView;
 import android.webkit.WebViewClient;
-
+import java.util.Arrays;
 import com.google.vrtoolkit.cardboard.*;
 
 import javax.microedition.khronos.egl.EGLConfig;
@@ -176,6 +179,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         mOverlayView.show3DToast("Pull the magnet when you find an object.");
 
         mWebView = new CustomWebView( this );
+        mWebView.getSettings().setJavaScriptEnabled(true);
         mWebView.loadUrl("http://www.reddit.com");
 
         addContentView( mWebView, new ViewGroup.LayoutParams( TEXTURE_WIDTH, TEXTURE_HEIGHT ) );
@@ -461,18 +465,66 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     @Override
     public void onCardboardTrigger() {
         Log.i(TAG, "onCardboardTrigger");
-
-        if (isLookingAtObject()) {
-            mScore++;
-            mOverlayView.show3DToast("Found it! Look around for another one.\nScore = " + mScore);
-            hideObject();
-        } else {
-            mOverlayView.show3DToast("Look around to find the object!");
+        float[] obj = new float[9];
+        for (int i = 0; i < obj.length; i++) {
+            obj[i] = DATA.CUBE_COORDS[i];
         }
+
+        float[] center = {0,0,0};
+        float[] mOwnView = new float[16];
+        Matrix.multiplyMM(mOwnView, 0, mView, 0, mModelCube, 0); // don't need to map to eye frame
+        float[] transObj = Utils.getTransformedObj(mOwnView, obj, center);
+
+        Log.i("Points: ", Arrays.toString(transObj));
+        float[] line = {0f, 0f, CAMERA_Z, 0f, 0f, 0f};
+        float[] p = Main.getIntersection(transObj, line);
+        if (p==null)
+            return;
+        float[] utM = new float[16];
+        Matrix.invertM(utM, 0, mOwnView, 0);
+        float[] p2 = new float[4];
+        for (int i = 0; i < p.length; i++) {
+            p2[i] = p[i];
+        }
+        p2[3] = 1;
+        float[] point = new float[4];
+        float[] untranslated = new float[12];
+        for(int i = 0; i < untranslated.length; i+=4) {
+            Matrix.multiplyMV(untranslated, i, utM, 0, transObj, i);
+        }
+        Matrix.multiplyMV(untranslated, 0, utM, 0, transObj, 0);
+        String str2 = String.format("(%f, %f, %f", untranslated[0], untranslated[1], untranslated[2]);
+        Log.i("Point Pos: ", str2);
+
+        Matrix.multiplyMV(point, 0, utM, 0, p2, 0);
+        if (point != null) {
+            String str = String.format("(%f, %f, %f", point[0], point[1], point[2]);
+            Log.i("Click Pos:", str);
+        }
+        //Utils.simulateTouch(this.getCardboardView(), pointX, pointY);
         // Always give user feedback
+        Display d = getWindowManager().getDefaultDisplay();
+        int w = mWebView.getWidth();
+        int h = mWebView.getHeight();
+        Log.d("Dim: ", String.format("%d, %d", w, h));
+        float[] xy = Utils.getXY(untranslated, point);
+
+        Log.d("click pos: ", String.format("%f, %f, %f, %f", xy[0], xy[1], xy[2], xy[3]));
+        Utils.simulateTouch(mWebView, xy[0], xy[1], xy[2], xy[3]);
         mVibrator.vibrate(50);
     }
-
+    @Override
+    public boolean onTouchEvent(MotionEvent event) {
+        int x = (int)event.getX();
+        int y = (int)event.getY();
+        Log.d("debug", String.format("%d, %d", x, y));
+        switch (event.getAction()) {
+            case MotionEvent.ACTION_DOWN:
+            case MotionEvent.ACTION_MOVE:
+            case MotionEvent.ACTION_UP:
+        }
+        return false;
+    }
     /**
      * Find a new random position for the object.
      * We'll rotate it around the Y-axis so it's out of sight, and then up or down by a little bit.
@@ -484,7 +536,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         // First rotate in XZ plane, between 90 and 270 deg away, and scale so that we vary
         // the object's distance from the user.
         float angleXZ = (float) Math.random() * 180 + 90;
-        Matrix.setRotateM(rotationMatrix, 0, angleXZ, 0f, 1f, 0f);
+        //Matrix.setRotateM(rotationMatrix, 0, angleXZ, 0f, 1f, 0f);
         float oldObjectDistance = mObjectDistance;
         mObjectDistance = (float) Math.random() * 15 + 5;
         float objectScalingFactor = mObjectDistance / oldObjectDistance;
@@ -515,9 +567,6 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         float pitch = (float)Math.atan2(objPositionVec[1], -objPositionVec[2]);
         float yaw = (float)Math.atan2(objPositionVec[0], -objPositionVec[2]);
 
-        Log.i(TAG, "Object position: X: " + objPositionVec[0]
-                + "  Y: " + objPositionVec[1] + " Z: " + objPositionVec[2]);
-        Log.i(TAG, "Object Pitch: " + pitch +"  Yaw: " + yaw);
 
         return (Math.abs(pitch) < PITCH_LIMIT) && (Math.abs(yaw) < YAW_LIMIT);
     }

@@ -82,14 +82,14 @@ public class Main {
 		p1[1] = threePoints[1];
 		p1[2] = threePoints[2];
 		
-		p2[0] = threePoints[3];
-		p2[1] = threePoints[4];
-		p2[2] = threePoints[5];
+		p2[0] = threePoints[4];
+		p2[1] = threePoints[5];
+		p2[2] = threePoints[6];
 		
 
-		p3[0] = threePoints[6];
-		p3[1] = threePoints[7];
-		p3[2] = threePoints[8];
+		p3[0] = threePoints[8];
+		p3[1] = threePoints[9];
+		p3[2] = threePoints[10];
 		
 		float[] p21 = subtract(p2, p1);
 		float[] p31 = subtract(p3, p1);
@@ -119,6 +119,15 @@ public class Main {
 		}
 		return result;
 	}
+
+    public static float getCos(float[] a, float[] b) {
+        return dotProduct(a,b) / (norm(a) * norm(b));
+    }
+
+    public static float norm(float[] a) {
+        return (float) Math.sqrt(dotProduct(a,a));
+    }
+
 	public static float[] add(float[] a, float[]b) {
 		float[] result = new float[a.length];
 		for (int i = 0; i < a.length; i++) {
@@ -152,10 +161,10 @@ public class Main {
 	}
 	
 	public static void main(String[] args) {
-		float[] points1 = {1,2,3,4,6,9,12,11,9};
+		float[] points1 = {1,2,3,1,4,6,9,1,12,11,9,1};
 		testPlane(points1);
 		
-		float[] points2 = {1,0,0,0,1,0,1,1,0};
+		float[] points2 = {1,0,0,1,0,1,0,1,1,1,0,1};
 		float [] line2 = {1,1,1,1,1,-1};
 		testPlane(points2);
 		testGetIntersection(points2, line2);

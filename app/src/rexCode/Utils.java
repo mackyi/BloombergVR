@@ -1,4 +1,4 @@
-package com.example.bitmaptest;
+package com.mackyi.cardboarddemo;
 import android.opengl.Matrix;
 import android.os.SystemClock;
 import android.view.MotionEvent;
@@ -28,7 +28,7 @@ public class Utils {
 		return resultV;
 	}
 	
-	public void simulateTouch(View view, float x, float y) {
+	public static void simulateTouch(View view, float x, float y) {
 		// Obtain MotionEvent object
 		long downTime = SystemClock.uptimeMillis();
 		long eventTime = SystemClock.uptimeMillis() + 100;
