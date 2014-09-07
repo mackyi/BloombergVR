@@ -1,5 +1,6 @@
 package com.mackyi.cardboarddemo;
 
+import android.app.Activity;
 import android.content.Context;
 import android.content.Intent;
 import android.graphics.Bitmap;
@@ -13,6 +14,7 @@ import android.opengl.GLES20;
 import android.opengl.GLSurfaceView;
 import android.opengl.Matrix;
 import android.os.Bundle;
+import android.os.Handler;
 import android.os.Vibrator;
 import android.speech.RecognizerIntent;
 import android.util.Log;
@@ -37,13 +39,18 @@ import java.nio.ByteBuffer;
 import java.nio.ByteOrder;
 import java.nio.FloatBuffer;
 import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.logging.Logger;
 
 /**
  * A Cardboard sample application.
  */
 public class MainActivity extends CardboardActivity implements CardboardView.StereoRenderer {
-
     private static final String TAG = "MainActivity";
+
+    private static final int MAX_TABS = 6;
+    private static final int SCROLL_SPEED = 100;
+
 
     private static final float CAMERA_Z = 0.01f;
     private static final float TIME_DELTA = 0.3f;
@@ -87,7 +94,6 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     private int mIsFloorParam;
     private int mUVParam;
 
-    private float[] mModelCube;
     private float[] mCamera;
     private float[] mView;
     private float[] mHeadView;
@@ -97,15 +103,22 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     private float[] mModelFloor;
 
     private int mScore = 0;
-    private float mObjectDistance = 12f;
+    private float mObjectDistance = 14f;
     private float mFloorDepth = 20f;
 
     private Vibrator mVibrator;
 
     private CardboardOverlayView mOverlayView;
 
-    private WebView mWebView;
     private int mModelViewProjectionParam2;
+
+    private int[] textures; //  = new int[MAX_TABS];
+
+   public enum ScrollStatus{
+        MIDDLE,
+        ABOVE,
+        BELOW
+    };
 
     /**
      * Converts a raw text file, saved as a resource, into an OpenGL ES shader
@@ -163,7 +176,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         cardboardView.setRenderer(this);
         setCardboardView(cardboardView);
 
-        mModelCube = new float[16];
+
         mCamera = new float[16];
         mView = new float[16];
         mModelViewProjection = new float[16];
@@ -173,12 +186,13 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         mVibrator = (Vibrator) getSystemService(Context.VIBRATOR_SERVICE);
 
         mOverlayView = (CardboardOverlayView) findViewById(R.id.overlay);
-        mOverlayView.show3DToast("Pull the magnet when you find an object.");
+        mOverlayView.show3DToast("Pull the magnet to load a new tab.");
 
-        mWebView = new CustomWebView( this );
-        mWebView.loadUrl("http://www.reddit.com");
+//        tabs.add(new Tab(this));
+//        tabs.get(0).setTextures(createSurfaceTexture(TEXTURE_WIDTH, TEXTURE_HEIGHT, 0));
+//        tabs.get(0).mWebView.loadUrl("http://www.reddit.com");
+//        addContentView(tabs.get(0).mWebView, new ViewGroup.LayoutParams( TEXTURE_WIDTH, TEXTURE_HEIGHT ) );
 
-        addContentView( mWebView, new ViewGroup.LayoutParams( TEXTURE_WIDTH, TEXTURE_HEIGHT ) );
         // new Surface( surfaceTexture );
 
 
@@ -192,10 +206,10 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     @Override
     public void onSurfaceChanged(int width, int height) {
         Log.i(TAG, "onSurfaceChanged");
-        int glSurfaceTex = createSurfaceTexture(TEXTURE_WIDTH, TEXTURE_HEIGHT);
-        surfaceTexture = new SurfaceTexture( glSurfaceTex );
-        surfaceTexture.setDefaultBufferSize( TEXTURE_WIDTH, TEXTURE_HEIGHT );
-        surface = new Surface( surfaceTexture);
+//        int glSurfaceTex = createSurfaceTexture(TEXTURE_WIDTH, TEXTURE_HEIGHT);
+//        surfaceTexture = new SurfaceTexture( glSurfaceTex );
+//        surfaceTexture.setDefaultBufferSize( TEXTURE_WIDTH, TEXTURE_HEIGHT );
+//        surface = new Surface( surfaceTexture);
     }
 
     /**
@@ -274,17 +288,14 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
         GLES20.glEnable(GLES20.GL_DEPTH_TEST);
 
+        createTextures(MAX_TABS);
+
         // Object first appears directly in front of user
-        Matrix.setIdentityM(mModelCube, 0);
-        Matrix.translateM(mModelCube, 0, 0, 0, -mObjectDistance);
+//        Matrix.setIdentityM(tabs.get(0).mModelCube, 0);
+//        Matrix.translateM(tabs.get(0).mModelCube, 0, 0, 0, -mObjectDistance);
 
         Matrix.setIdentityM(mModelFloor, 0);
         Matrix.translateM(mModelFloor, 0, 0, -mFloorDepth, 0); // Floor appears below user
-
-        int glSurfaceTex = createSurfaceTexture(TEXTURE_WIDTH, TEXTURE_HEIGHT);
-        surfaceTexture = new SurfaceTexture( glSurfaceTex );
-        surfaceTexture.setDefaultBufferSize( TEXTURE_WIDTH, TEXTURE_HEIGHT );
-        surface = new Surface( surfaceTexture);
 
         checkGLError("onSurfaceCreated");
     }
@@ -334,6 +345,16 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
         headTransform.getHeadView(mHeadView, 0);
 
+        for (int i = 0; i < tabs.size(); i++) {
+            ScrollStatus status = scrollStatusForTab(i);
+            if(status == ScrollStatus.BELOW){
+                tabs.get(i).mWebView.setScrollSpeed(-SCROLL_SPEED);
+            } else if(status == ScrollStatus.ABOVE){
+                tabs.get(i).mWebView.setScrollSpeed(SCROLL_SPEED);
+            } else {
+                tabs.get(i).mWebView.setScrollSpeed(0);
+            }
+        }
         checkGLError("onReadyToDraw");
     }
 
@@ -346,9 +367,12 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     public void onDrawEye(EyeTransform transform) {
 
         GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT | GLES20.GL_DEPTH_BUFFER_BIT);
-
-        synchronized ( this ) {
-            surfaceTexture.updateTexImage(); // Update texture
+        for(int i = 0; i < tabs.size(); i++){
+            synchronized(tabs.get(i)){
+                if(tabs.get(i).texture != null) {
+                    tabs.get(i).texture.updateTexImage(); // Update texture
+                }
+            }
         }
 
 
@@ -375,12 +399,16 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         GLES20.glUniform3f(mLightPosParam, mLightPosInEyeSpace[0], mLightPosInEyeSpace[1],
                 mLightPosInEyeSpace[2]);
 
-        // Build the ModelView and ModelViewProjection matrices
-        // for calculating cube position and light.
-        Matrix.multiplyMM(mModelView, 0, mView, 0, mModelCube, 0);
-        Matrix.multiplyMM(mModelViewProjection, 0, transform.getPerspective(), 0, mModelView, 0);
+        for(int i = 0; i < tabs.size(); i++){
+            synchronized(tabs.get(i)){
+                // Build the ModelView and ModelViewProjection matrices
+                // for calculating cube position and light.
+                Matrix.multiplyMM(mModelView, 0, mView, 0, tabs.get(i).mModelCube, 0);
+                Matrix.multiplyMM(mModelViewProjection, 0, transform.getPerspective(), 0, mModelView, 0);
 
-        drawCube();
+                drawCube(tabs.get(i));
+            }
+        }
         // Set mModelView for the floor, so we draw floor in the correct location
         Matrix.multiplyMM(mModelView, 0, mView, 0, mModelFloor, 0);
         Matrix.multiplyMM(mModelViewProjection, 0, transform.getPerspective(), 0,
@@ -396,8 +424,10 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
      * Draw the cube. We've set all of our transformation matrices. Now we simply pass them into
      * the shader.
      */
-    public void drawCube() {
+    public void drawCube(Tab tab) {
         GLES20.glUseProgram(mGlProgram2);
+        GLES10.glBindTexture( GLES11Ext.GL_TEXTURE_EXTERNAL_OES, tab.textureInt);
+
 //        // This is not the floor!
 //        GLES20.glUniform1f(mIsFloorParam, 0f);
 //
@@ -427,6 +457,8 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         }
         GLES20.glVertexAttribPointer(mUVParam, 2, GLES20.GL_FLOAT, false, 0, mCubeUVs);
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 36);
+
+        GLES10.glBindTexture( GLES11Ext.GL_TEXTURE_EXTERNAL_OES, 0 );
         checkGLError("Drawing cube");
     }
 
@@ -463,11 +495,30 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         Log.i(TAG, "onCardboardTrigger");
 
         if (isLookingAtObject()) {
-            mScore++;
-            mOverlayView.show3DToast("Found it! Look around for another one.\nScore = " + mScore);
-            hideObject();
+//            mScore++;
+//            mOverlayView.show3DToast("Found it! Look around for another one.\nScore = " + mScore);
+//            hideObject();
+            mOverlayView.show3DToast("Clicked!");
+            if(tabs.size() < MAX_TABS){
+                addNewTab();
+            }
+            //mWebView.loadUrl("http://www.facebook.com");
+//            tabs.get(0).mWebView.loadUrl("javascript:(function() { " +
+//                    "document.querySelectorAll('.title')[0].click(); " +
+//                    "})()");
+            tabs.get(0).mWebView.loadUrl("javascript:(function () {\n" +
+                    "    var x = 200, y = 10;\n" +
+                    "    var clickEvent= document.createEvent('MouseEvents');\n" +
+                    "    clickEvent.initMouseEvent(\n" +
+                    "    'click', true, true, window, 0,\n" +
+                    "    0, 0, x, y, false, false,\n" +
+                    "    false, false, 0, null\n" +
+                    "    );\n" +
+                    "    document.elementFromPoint(x, y).dispatchEvent(clickEvent);\n" +
+                    "})()");
         } else {
             mOverlayView.show3DToast("Look around to find the object!");
+
         }
         // Always give user feedback
         mVibrator.vibrate(50);
@@ -477,27 +528,50 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
      * Find a new random position for the object.
      * We'll rotate it around the Y-axis so it's out of sight, and then up or down by a little bit.
      */
-    private void hideObject() {
+//    private void hideObject() {
+//        float[] rotationMatrix = new float[16];
+//        float[] posVec = new float[4];
+//
+//        // First rotate in XZ plane, between 90 and 270 deg away, and scale so that we vary
+//        // the object's distance from the user.
+//        float angleXZ = (float) Math.random() * 180 + 90;
+//        Matrix.setRotateM(rotationMatrix, 0, angleXZ, 0f, 1f, 0f);
+//        float oldObjectDistance = mObjectDistance;
+//        mObjectDistance = (float) Math.random() * 15 + 5;
+//        float objectScalingFactor = mObjectDistance / oldObjectDistance;
+//        Matrix.scaleM(rotationMatrix, 0, objectScalingFactor, objectScalingFactor, objectScalingFactor);
+//        Matrix.multiplyMV(posVec, 0, rotationMatrix, 0, mModelCube, 12);
+//
+//        // Now get the up or down angle, between -20 and 20 degrees
+//        float angleY = (float) Math.random() * 80 - 40; // angle in Y plane, between -40 and 40
+//        angleY = (float) Math.toRadians(angleY);
+//        float newY = (float)Math.tan(angleY) * mObjectDistance;
+//
+//        Matrix.setIdentityM(mModelCube, 0);
+//        Matrix.translateM(mModelCube, 0, posVec[0], newY, posVec[2]);
+//    }
+
+    private void addNewTab() {
+        Tab newTab = new Tab(this);
+        newTab.setTextures(createSurfaceTexture(TEXTURE_WIDTH, TEXTURE_HEIGHT, tabs.size()));
+        newTab.mWebView.loadUrl("https://www.reddit.com");
+        tabs.add(newTab);
         float[] rotationMatrix = new float[16];
         float[] posVec = new float[4];
-
+        Matrix.setIdentityM(newTab.mModelCube, 0);;
+        Matrix.translateM(newTab.mModelCube, 0, 0, 0, -mObjectDistance);
         // First rotate in XZ plane, between 90 and 270 deg away, and scale so that we vary
         // the object's distance from the user.
-        float angleXZ = (float) Math.random() * 180 + 90;
+        float angleXZ = (float) -60.0 * (tabs.size()-1);
         Matrix.setRotateM(rotationMatrix, 0, angleXZ, 0f, 1f, 0f);
-        float oldObjectDistance = mObjectDistance;
-        mObjectDistance = (float) Math.random() * 15 + 5;
-        float objectScalingFactor = mObjectDistance / oldObjectDistance;
-        Matrix.scaleM(rotationMatrix, 0, objectScalingFactor, objectScalingFactor, objectScalingFactor);
-        Matrix.multiplyMV(posVec, 0, rotationMatrix, 0, mModelCube, 12);
+        Matrix.multiplyMV(posVec, 0, rotationMatrix, 0, newTab.mModelCube, 12);
+//
+        Matrix.setIdentityM(newTab.mModelCube, 0);
+        Matrix.translateM(newTab.mModelCube, 0, posVec[0], posVec[1], posVec[2]);
 
-        // Now get the up or down angle, between -20 and 20 degrees
-        float angleY = (float) Math.random() * 80 - 40; // angle in Y plane, between -40 and 40
-        angleY = (float) Math.toRadians(angleY);
-        float newY = (float)Math.tan(angleY) * mObjectDistance;
+        Matrix.rotateM(newTab.mModelCube, 0, angleXZ, 0f, 1f, 0f);
 
-        Matrix.setIdentityM(mModelCube, 0);
-        Matrix.translateM(mModelCube, 0, posVec[0], newY, posVec[2]);
+        addContentView(newTab.mWebView, new ViewGroup.LayoutParams( TEXTURE_WIDTH, TEXTURE_HEIGHT ) );
     }
 
     /**
@@ -505,11 +579,13 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
      * @return
      */
     private boolean isLookingAtObject() {
+        if(tabs.size() == 0 ) return true;
         float[] initVec = {0, 0, 0, 1.0f};
         float[] objPositionVec = new float[4];
 
         // Convert object space to camera space. Use the headView from onNewFrame.
-        Matrix.multiplyMM(mModelView, 0, mHeadView, 0, mModelCube, 0);
+        // TODO(mackyi): loop over all tabs
+        Matrix.multiplyMM(mModelView, 0, mHeadView, 0, tabs.get(0).mModelCube, 0);
         Matrix.multiplyMV(objPositionVec, 0, mModelView, 0, initVec, 0);
 
         float pitch = (float)Math.atan2(objPositionVec[1], -objPositionVec[2]);
@@ -522,20 +598,83 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         return (Math.abs(pitch) < PITCH_LIMIT) && (Math.abs(yaw) < YAW_LIMIT);
     }
 
-    private final int TEXTURE_WIDTH = 1920;
-    private final int TEXTURE_HEIGHT = 1920;
+    private ScrollStatus scrollStatusForTab(int tab) {
+        float[] initVec = {0, 0, 0, 1.0f};
+        float[] objPositionVec = new float[4];
 
-    private Surface surface = null;
-    private SurfaceTexture surfaceTexture = null;
+        Matrix.multiplyMM(mModelView, 0, mHeadView, 0, tabs.get(tab).mModelCube, 0);
+        Matrix.multiplyMV(objPositionVec, 0, mModelView, 0, initVec, 0);
+
+        float pitch = (float)Math.atan2(objPositionVec[1], -objPositionVec[2]);
+        float yaw = (float)Math.atan2(objPositionVec[0], -objPositionVec[2]);
+
+        Log.i(TAG, "Object position: X: " + objPositionVec[0]
+                + "  Y: " + objPositionVec[1] + " Z: " + objPositionVec[2]);
+        Log.i(TAG, "Object Pitch: " + pitch +"  Yaw: " + yaw);
+
+        if( Math.abs(pitch) > PITCH_LIMIT * 2 && (Math.abs(yaw) < YAW_LIMIT*22)) {
+            if(objPositionVec[1] > 0) {
+                return ScrollStatus.BELOW;
+            } else {
+                return ScrollStatus.ABOVE;
+            }
+        }
+        return ScrollStatus.MIDDLE;
+    }
+
+    private final int TEXTURE_WIDTH = 3000;
+    private final int TEXTURE_HEIGHT = 3000;
 
     public class CustomWebView extends WebView {
+        Surface surface;
+        int scrollSpeed;
+        Handler mHandler;
+
         public CustomWebView(Context context) {
             super(context);
-
-            setWebChromeClient(new WebChromeClient(){});
+            getSettings().setJavaScriptEnabled(true);
+            String newUA= "Mozilla/5.0 (Windows NT 6.1; rv:27.3) Gecko/20130101 Firefox/27.3";
+            getSettings().setUserAgentString(newUA);
+            setWebChromeClient(new WebChromeClient() {
+            });
             setWebViewClient(new WebViewClient());
 
             setLayoutParams(new ViewGroup.LayoutParams(TEXTURE_WIDTH, TEXTURE_HEIGHT));
+            mHandler = new Handler();
+            new Scroller(this).run();
+        }
+
+        public void setSurface(Surface surface){
+            this.surface = surface;
+            this.invalidate();
+        }
+
+        public void setScrollSpeed(int scrollSpeed){
+            this.scrollSpeed = scrollSpeed;
+        }
+
+        private class Scroller implements Runnable {
+            CustomWebView webView;
+
+            public Scroller(CustomWebView webView) {
+                this.webView = webView;
+            }
+            public void run()
+            {
+                int height = (int) Math.floor(webView.getContentHeight() * webView.getScale());
+                int webViewHeight = webView.getMeasuredHeight();
+                webView.scrollBy(0, webView.scrollSpeed);
+//
+//                if( scrollSpeed < 0) {
+//                    int diff = height - (webView.getScrollY() + webViewHeight);
+//                    webView.scrollBy(0, Math.max(diff, webView.scrollSpeed));
+//                } else if( scrollSpeed > 0) {
+//                    Log.e(TAG, "scrolling up since scrollY is " + webView.getScrollY());
+//                    Log.e(TAG, "height is " + height + " and webViewHeight is " + webViewHeight);
+//                    webView.scrollBy(0, Math.min(webView.getScrollY(), webView.scrollSpeed));
+//                }
+                mHandler.postDelayed(this, 100);
+            }
         }
 
         @Override
@@ -554,12 +693,19 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         }
     }
 
-    int createSurfaceTexture(final int width, final int height ) {
-        int[] glTextures = new int[1];
+    void createTextures( int numTextures) {
+        textures = new int[numTextures];
+        GLES10.glGenTextures(numTextures, textures, 0);
+        Log.e(TAG, Arrays.toString(textures));
+        Log.e(TAG, "Create textures error: " + GLES10.glGetError());
+    }
 
-        GLES10.glGenTextures(1, glTextures, 0);
-
-        int glTexture = glTextures[0];
+    int createSurfaceTexture(final int width, final int height, int index) {
+        Log.e(TAG, "Create surface with array " + Arrays.toString(textures));
+        if(textures == null){
+            return 0;
+        }
+        int glTexture =textures[index % textures.length];
 
         if ( glTexture > 0 ) {
             GLES10.glBindTexture( GLES11Ext.GL_TEXTURE_EXTERNAL_OES, glTexture );
@@ -631,6 +777,29 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         super.onActivityResult(requestCode, resultCode, data);
     }
 
+    ArrayList<Tab> tabs = new ArrayList<Tab>();
 
+    public class Tab {
+        public CustomWebView mWebView;
+        public float[] mModelCube;
 
+        public int textureInt;
+        public SurfaceTexture texture;
+        public Surface surface;
+
+        public Tab(Activity activity){
+            mWebView = new CustomWebView(activity);
+            mModelCube = new float[16];
+        }
+
+        public void setTextures(int textureInt) {
+
+            Log.e(TAG, "Creating tab with textureInt " + textureInt);
+            this.textureInt = textureInt;
+            this.texture = new SurfaceTexture(textureInt);
+            texture.setDefaultBufferSize( TEXTURE_WIDTH, TEXTURE_HEIGHT );
+            this.surface = new Surface(texture);
+            this.mWebView.setSurface(surface);
+        }
+    }
 }
