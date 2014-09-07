@@ -53,10 +53,9 @@ import java.util.logging.Logger;
 /**
  * A Cardboard sample application.
  */
-public class MainActivity extends CardboardActivity implements CardboardView.StereoRenderer, SensorEventListener {
-    private SensorManager mSensorManager;
-    private Sensor mSensor;
+public class MainActivity extends CardboardActivity implements CardboardView.StereoRenderer {
     private static final String TAG = "MainActivity";
+    private long oldTime = 0;
 
     private static final int MAX_TABS = 6;
     private static final int SCROLL_SPEED = 100;
@@ -136,18 +135,6 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
     private Bitmap searchBMap;
 
-    @Override
-    public void onSensorChanged(SensorEvent event) {
-        Log.d("Sensor val: ", Float.toString(event.values[0]));
-        if (Math.abs(event.values[0]) > 20) {
-            addNewTab();
-        }
-    }
-
-    @Override
-    public void onAccuracyChanged(Sensor sensor, int accuracy) {
-
-    }
 
     public enum ScrollStatus{
         MIDDLE,
@@ -229,13 +216,6 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 //        addContentView(tabs.get(0).mWebView, new ViewGroup.LayoutParams( TEXTURE_WIDTH, TEXTURE_HEIGHT ) );
 
         // new Surface( surfaceTexture );
-        /**
-         * Attach our sensors
-         */
-
-        mSensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
-        mSensor = mSensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
-        mSensorManager.registerListener(this, mSensor, mSensorManager.SENSOR_DELAY_NORMAL);
     }
 
     @Override
@@ -639,10 +619,11 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
      */
     @Override
     public void onCardboardTrigger() {
+        long timeClicked = System.currentTimeMillis();
         Log.i(TAG, "onCardboardTrigger");
         float[] eye = {0, 0, CAMERA_Z};
         float[] centerOfView = {0,0,0};
-        if(tabs.size() == 0){
+        if(tabs.size() == 0 || timeClicked - oldTime < 1000){
             addNewTab();
             return;
         }
@@ -654,6 +635,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
             startVoiceRecognitionActivity();
             // put your speech call here
         }
+        oldTime = timeClicked;
         /*if (!isLookingAtObject()) {
 //            mScore++;
 //            mOverlayView.show3DToast("Found it! Look around for another one.\nScore = " + mScore);
@@ -819,10 +801,6 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
             float pitch = (float)Math.atan2(objPositionVec[1], -objPositionVec[2]);
             float yaw = (float)Math.atan2(objPositionVec[0], -objPositionVec[2]);
 
-            Log.i(TAG, "Object position: X: " + objPositionVec[0]
-                    + "  Y: " + objPositionVec[1] + " Z: " + objPositionVec[2]);
-            Log.i(TAG, "Object Pitch: " + pitch +"  Yaw: " + yaw);
-
             if((Math.abs(pitch) < PITCH_LIMIT*3) && (Math.abs(yaw) < YAW_LIMIT*13)) {
                 return true;
             }
@@ -839,10 +817,6 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
         float pitch = (float)Math.atan2(objPositionVec[1], -objPositionVec[2]);
         float yaw = (float)Math.atan2(objPositionVec[0], -objPositionVec[2]);
-
-        Log.i(TAG, "Object position: X: " + objPositionVec[0]
-                + "  Y: " + objPositionVec[1] + " Z: " + objPositionVec[2]);
-        Log.i(TAG, "Object Pitch: " + pitch +"  Yaw: " + yaw);
 
         if( Math.abs(pitch) > PITCH_LIMIT * 2 && (Math.abs(yaw) < YAW_LIMIT*22)) {
             if(objPositionVec[1] > 0) {
@@ -1006,13 +980,22 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
                     RecognizerIntent.EXTRA_RESULTS);
             if(matches != null){
                 String s = matches.get(0);
-                if(s.contains(".")){
+                if(s.equalsIgnoreCase("back")){
+                    if(bestTab.mWebView.canGoBack()){
+                        bestTab.mWebView.goBack();
+                    }
+                }
+                else if(s.equalsIgnoreCase("forward")){
+                    if(bestTab.mWebView.canGoForward())
+                        bestTab.mWebView.goForward();
+                }
+                else if(s.contains(".")){
                     s = s.replace(" ", "");
                 }else{
                     s = s.replace(" ", "+");
                     s = "www.google.com/#q="+s;
                 }
-                System.out.println(s);
+                Log.d("URL string: ", s);
                 bestTab.mWebView.loadUrl(s);
             }
         }
@@ -1043,15 +1026,5 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
             this.surface = new Surface(texture);
             this.mWebView.setSurface(surface);
         }
-    }
-
-    protected void onResume() {
-        super.onResume();
-        mSensorManager.registerListener(this, mSensor, SensorManager.SENSOR_DELAY_NORMAL);
-    }
-
-    protected void onPause() {
-        super.onPause();
-        mSensorManager.unregisterListener(this);
     }
 }
