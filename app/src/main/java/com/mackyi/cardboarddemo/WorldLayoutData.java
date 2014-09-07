@@ -4,6 +4,25 @@ package com.mackyi.cardboarddemo;
  * Created by Mack on 9/4/2014.
  */
 public final class WorldLayoutData {
+    public static final float[] SEARCH_COORDS = new float[] {
+            // Front face
+            -1.0f, -6.0f, 4.0f,
+            -1.0f, -8.0f, 4.0f,
+            1.0f, -6.0f, 4.0f,
+            -1.0f, -8.0f, 4.0f,
+            1.0f, -8.0f, 4.0f,
+            1.0f, -6.0f, 4.0f,
+    };
+
+    public static final float[] SEARCH_UVS = new float[] {
+            // front, green
+            0.0f,  0.0f,
+            0.0f, 1.0f,
+            1.0f,  0.0f,
+            0.0f, 1.0f,
+            1.0f, 1.0f,
+            1.0f, 0.0f,
+    };
 
     public static final float[] CUBE_COORDS = new float[] {
             // Front face

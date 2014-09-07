@@ -6,18 +6,25 @@ import android.content.Intent;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
+import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
+import android.hardware.Sensor;
+import android.hardware.SensorEvent;
+import android.hardware.SensorEventListener;
+import android.hardware.SensorManager;
 import android.opengl.GLES10;
 import android.opengl.GLES11Ext;
 import android.opengl.GLES20;
 import android.opengl.GLSurfaceView;
+import android.opengl.GLUtils;
 import android.opengl.Matrix;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Vibrator;
 import android.speech.RecognizerIntent;
 import android.util.Log;
+import android.view.Display;
 import android.view.Surface;
 import android.view.View;
 import android.view.ViewGroup;
@@ -42,10 +49,13 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.logging.Logger;
 
+
 /**
  * A Cardboard sample application.
  */
-public class MainActivity extends CardboardActivity implements CardboardView.StereoRenderer {
+public class MainActivity extends CardboardActivity implements CardboardView.StereoRenderer, SensorEventListener {
+    private SensorManager mSensorManager;
+    private Sensor mSensor;
     private static final String TAG = "MainActivity";
 
     private static final int MAX_TABS = 6;
@@ -82,8 +92,10 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
     private int mGlProgram;
     private int mGlProgram2;
+    private int mGlProgram3;
     private int mPositionParam;
     private int mPositionParam2;
+    private int mPositionParam3;
     private int mNormalParam;
     private int mColorParam;
     private int mColorParam2;
@@ -114,7 +126,30 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
     private int[] textures; //  = new int[MAX_TABS];
 
-   public enum ScrollStatus{
+    private boolean[] tabExists = new boolean[MAX_TABS];
+    private FloatBuffer mSearchVertices;
+    private FloatBuffer searchUVs;
+    private int mUVParam2;
+    private int mModelViewProjectionParam3;
+
+    private Tab bestTab;
+
+    private Bitmap searchBMap;
+
+    @Override
+    public void onSensorChanged(SensorEvent event) {
+        Log.d("Sensor val: ", Float.toString(event.values[0]));
+        if (Math.abs(event.values[0]) > 20) {
+            addNewTab();
+        }
+    }
+
+    @Override
+    public void onAccuracyChanged(Sensor sensor, int accuracy) {
+
+    }
+
+    public enum ScrollStatus{
         MIDDLE,
         ABOVE,
         BELOW
@@ -194,8 +229,13 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 //        addContentView(tabs.get(0).mWebView, new ViewGroup.LayoutParams( TEXTURE_WIDTH, TEXTURE_HEIGHT ) );
 
         // new Surface( surfaceTexture );
+        /**
+         * Attach our sensors
+         */
 
-
+        mSensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+        mSensor = mSensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
+        mSensorManager.registerListener(this, mSensor, mSensorManager.SENSOR_DELAY_NORMAL);
     }
 
     @Override
@@ -228,6 +268,12 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         mCubeVertices.put(DATA.CUBE_COORDS);
         mCubeVertices.position(0);
 
+        ByteBuffer bbSearchVertices = ByteBuffer.allocateDirect(DATA.SEARCH_COORDS.length * 4);
+        bbSearchVertices.order(ByteOrder.nativeOrder());
+        mSearchVertices = bbSearchVertices.asFloatBuffer();
+        mSearchVertices.put(DATA.SEARCH_COORDS);
+        mSearchVertices.position(0);
+
         ByteBuffer bbColors = ByteBuffer.allocateDirect(DATA.CUBE_COLORS.length * 4);
         bbColors.order(ByteOrder.nativeOrder());
         mCubeColors = bbColors.asFloatBuffer();
@@ -252,6 +298,12 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         mCubeUVs.put(DATA.CUBE_UV);
         mCubeUVs.position(0);
 
+        ByteBuffer bbSearchUVs = ByteBuffer.allocateDirect(WorldLayoutData.SEARCH_UVS.length * 4);
+        bbUVs.order(ByteOrder.nativeOrder());
+        searchUVs = bbSearchUVs.asFloatBuffer();
+        searchUVs.put(DATA.SEARCH_UVS);
+        searchUVs.position(0);
+
         // make a floor
         ByteBuffer bbFloorVertices = ByteBuffer.allocateDirect(DATA.FLOOR_COORDS.length * 4);
         bbFloorVertices.order(ByteOrder.nativeOrder());
@@ -275,9 +327,11 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         int gridShader = loadGLShader(GLES20.GL_FRAGMENT_SHADER, R.raw.grid_fragment);
         int webVertexShader = loadGLShader(GLES20.GL_VERTEX_SHADER, R.raw.web_vertex);
         int textureShader=  loadGLShader(GLES20.GL_FRAGMENT_SHADER, R.raw.web_texture);
+        int imageShader = loadGLShader(GLES20.GL_FRAGMENT_SHADER, R.raw.simpler_image_fragment);
 
         mGlProgram = GLES20.glCreateProgram();
         mGlProgram2 = GLES20.glCreateProgram();
+        mGlProgram3 = GLES20.glCreateProgram();
         GLES20.glAttachShader(mGlProgram, vertexShader);
         GLES20.glAttachShader(mGlProgram, gridShader);
         GLES20.glLinkProgram(mGlProgram);
@@ -286,10 +340,17 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         GLES20.glAttachShader(mGlProgram2, textureShader);
         GLES20.glLinkProgram(mGlProgram2);
 
+        GLES20.glAttachShader(mGlProgram3, webVertexShader);
+        GLES20.glAttachShader(mGlProgram3, imageShader);
+        GLES20.glLinkProgram(mGlProgram3);
+
         GLES20.glEnable(GLES20.GL_DEPTH_TEST);
 
-        createTextures(MAX_TABS);
+        createTextures(MAX_TABS+1);
 
+
+        searchBMap = BitmapFactory.decodeResource(getResources(), R.drawable.blackbox);
+        createSurfaceTexture(searchBMap.getWidth(), searchBMap.getHeight(), MAX_TABS);
         // Object first appears directly in front of user
 //        Matrix.setIdentityM(tabs.get(0).mModelCube, 0);
 //        Matrix.translateM(tabs.get(0).mModelCube, 0, 0, 0, -mObjectDistance);
@@ -332,6 +393,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
         mModelViewProjectionParam = GLES20.glGetUniformLocation(mGlProgram, "u_MVP");
         mModelViewProjectionParam2 = GLES20.glGetUniformLocation(mGlProgram2, "u_MVP");
+        mModelViewProjectionParam3 = GLES20.glGetUniformLocation(mGlProgram3, "u_MVP");
         mLightPosParam = GLES20.glGetUniformLocation(mGlProgram, "u_LightPos");
         mModelViewParam = GLES20.glGetUniformLocation(mGlProgram, "u_MVMatrix");
         mModelParam = GLES20.glGetUniformLocation(mGlProgram, "u_Model");
@@ -378,17 +440,21 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
         mPositionParam = GLES20.glGetAttribLocation(mGlProgram, "a_Position");
         mPositionParam2 = GLES20.glGetAttribLocation(mGlProgram2, "a_Position");
+        mPositionParam3 = GLES20.glGetAttribLocation(mGlProgram3, "a_Position");
         mNormalParam = GLES20.glGetAttribLocation(mGlProgram, "a_Normal");
         mColorParam = GLES20.glGetAttribLocation(mGlProgram, "a_Color");
         mColorParam2 = GLES20.glGetAttribLocation(mGlProgram2, "a_Color");
         mUVParam = GLES20.glGetAttribLocation(mGlProgram2, "a_uv");
+        mUVParam2 = GLES20.glGetAttribLocation(mGlProgram3, "a_uv");
 
         GLES20.glEnableVertexAttribArray(mPositionParam);
         GLES20.glEnableVertexAttribArray(mPositionParam2);
+        GLES20.glEnableVertexAttribArray(mPositionParam3);
         GLES20.glEnableVertexAttribArray(mNormalParam);
         GLES20.glEnableVertexAttribArray(mColorParam);
         GLES20.glEnableVertexAttribArray(mColorParam2);
         GLES20.glEnableVertexAttribArray(mUVParam);
+        GLES20.glEnableVertexAttribArray(mUVParam2);
         checkGLError("mColorParam");
 
         // Apply the eye transformation to the camera.
@@ -448,17 +514,24 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 //        GLES20.glVertexAttribPointer(mNormalParam, 3, GLES20.GL_FLOAT,
 //                false, 0, mCubeNormals);
 
-        if (isLookingAtObject()) {
-            GLES20.glVertexAttribPointer(mColorParam2, 4, GLES20.GL_FLOAT, false,
-                    0, mCubeFoundColors);
-        } else {
-            GLES20.glVertexAttribPointer(mColorParam2, 4, GLES20.GL_FLOAT, false,
-                    0, mCubeColors);
-        }
+//        if (isLookingAtObject()) {
+//            GLES20.glVertexAttribPointer(mColorParam2, 4, GLES20.GL_FLOAT, false,
+//                    0, mCubeFoundColors);
+//        } else {
+//            GLES20.glVertexAttribPointer(mColorParam2, 4, GLES20.GL_FLOAT, false,
+//                    0, mCubeColors);
+//        }
         GLES20.glVertexAttribPointer(mUVParam, 2, GLES20.GL_FLOAT, false, 0, mCubeUVs);
         GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 36);
 
-        GLES10.glBindTexture( GLES11Ext.GL_TEXTURE_EXTERNAL_OES, 0 );
+
+        GLES20.glUseProgram(mGlProgram3);
+        GLES20.glUniformMatrix4fv(mModelViewProjectionParam3, 1, false, mModelViewProjection, 0);
+        GLES20.glVertexAttribPointer(mPositionParam3, COORDS_PER_VERTEX, GLES20.GL_FLOAT,
+                false, 0, mSearchVertices);
+        GLES20.glVertexAttribPointer(mUVParam2, 2, GLES20.GL_FLOAT, false, 0, searchUVs);
+        // GLES20.glDrawArrays(GLES20.GL_TRIANGLES, 0, 6);
+
         checkGLError("Drawing cube");
     }
 
@@ -485,7 +558,81 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
         checkGLError("drawing floor");
     }
+    public Tab getTab(ArrayList<Tab> tabs, float[] eye, float[] centerOfView) {
+        if (tabs == null || tabs.size() == 0) {
+            return null;
+        }
+        float best_angle = 1;
+        int best_tab = 0;
+        float[] mOwnView = new float[16];
+        float[] centerOfCube = new float[4];
+        float[] cubeStart = {0,0,0,1};
+        float[] centerOfCube_3 = new float[3];
+        for (int i = 0; i < tabs.size(); i++) {
+            Matrix.multiplyMM(mOwnView, 0, mView, 0, tabs.get(i).mModelCube, 0);
+            Matrix.multiplyMV(centerOfCube, 0, mOwnView, 0, cubeStart, 0);
+            centerOfCube_3[0] = centerOfCube[0];
+            centerOfCube_3[1] = centerOfCube[1];
+            centerOfCube_3[2] = centerOfCube[2];
+            float angle = Main.getCos(Main.subtract(centerOfView, eye), centerOfCube_3);
+            if (angle < best_angle) {
+                best_tab = i;
+                best_angle = angle;
+            }
+        }
+        return tabs.get(best_tab);
+    }
+    public boolean inBounds(Tab t, float[] eye, float[] centerOfView) {
+        float[] viewLine = Main.subtract(centerOfView, eye);
+        float[] obj = new float[9];
+        for (int i = 0; i < obj.length; i++) {
+            obj[i] = DATA.CUBE_COORDS[i];
+        }
+        float[] mOwnView = new float[16];
+        float[] center = {0,0,0};
+        Matrix.multiplyMM(mOwnView, 0, mView, 0, t.mModelCube, 0); // don't need to map to eye frame
+        float[] transObj = Utils.getTransformedObj(mOwnView, obj, center);
+        float[] line = new float[6];
+        line[0] = eye[0];
+        line[1] = eye[1];
+        line[2] = eye[2];
+        line[3] = centerOfView[0];
+        line[4] = centerOfView[1];
+        line[5] = centerOfView[2];
+        float[] p = Main.getIntersection(transObj, line);
+        if (p==null)
+            return false;
+        float[] utM = new float[16];
+        Matrix.invertM(utM, 0, mOwnView, 0);
+        float[] p2 = new float[4];
+        for (int i = 0; i < p.length; i++) {
+            p2[i] = p[i];
+        }
+        p2[3] = 1;
 
+        float[] point = new float[4];
+        float[] untranslated = new float[12];
+        for(int i = 0; i < untranslated.length; i+=4) {
+            Matrix.multiplyMV(untranslated, i, utM, 0, transObj, i);
+        }
+        Matrix.multiplyMV(untranslated, 0, utM, 0, transObj, 0);
+
+        Matrix.multiplyMV(point, 0, utM, 0, p2, 0);
+
+        String str = String.format("(%f, %f, %f", point[0], point[1], point[2]);
+        Log.i("CubeBound Pos:", str);
+        //Utils.simulateTouch(this.getCardboardView(), pointX, pointY);
+        // Always give user feedback
+        float[] xy = Utils.getXY(untranslated, point);
+
+        Log.d("Bound pos: ", String.format("%f, %f, %f, %f", xy[0], xy[1], xy[2], xy[3]));
+
+        // safe boundary of 1f
+        if (xy[1] < -1f || xy[1] > xy[3] + 1f) {
+            return false;
+        }
+        return true;
+    }
     /**
      * Increment the score, hide the object, and give feedback if the user pulls the magnet while
      * looking at the object. Otherwise, remind the user what to do.
@@ -493,8 +640,21 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     @Override
     public void onCardboardTrigger() {
         Log.i(TAG, "onCardboardTrigger");
-
-        if (isLookingAtObject()) {
+        float[] eye = {0, 0, CAMERA_Z};
+        float[] centerOfView = {0,0,0};
+        if(tabs.size() == 0){
+            addNewTab();
+            return;
+        }
+        bestTab = getTab(tabs, eye, centerOfView);
+        if(inBounds(bestTab, eye, centerOfView)) {
+            processClick(bestTab);
+        } else {
+            Log.d("Speech", "SPEECH MODE DUMMY OUTPUT");
+            startVoiceRecognitionActivity();
+            // put your speech call here
+        }
+        /*if (!isLookingAtObject()) {
 //            mScore++;
 //            mOverlayView.show3DToast("Found it! Look around for another one.\nScore = " + mScore);
 //            hideObject();
@@ -502,28 +662,58 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
             if(tabs.size() < MAX_TABS){
                 addNewTab();
             }
-            //mWebView.loadUrl("http://www.facebook.com");
-//            tabs.get(0).mWebView.loadUrl("javascript:(function() { " +
-//                    "document.querySelectorAll('.title')[0].click(); " +
-//                    "})()");
-            tabs.get(0).mWebView.loadUrl("javascript:(function () {\n" +
-                    "    var x = 200, y = 10;\n" +
-                    "    var clickEvent= document.createEvent('MouseEvents');\n" +
-                    "    clickEvent.initMouseEvent(\n" +
-                    "    'click', true, true, window, 0,\n" +
-                    "    0, 0, x, y, false, false,\n" +
-                    "    false, false, 0, null\n" +
-                    "    );\n" +
-                    "    document.elementFromPoint(x, y).dispatchEvent(clickEvent);\n" +
-                    "})()");
-        } else {
-            mOverlayView.show3DToast("Look around to find the object!");
-
-        }
+        } */
         // Always give user feedback
         mVibrator.vibrate(50);
     }
 
+    private void processClick(Tab tab) {
+        float[] obj = new float[9];
+        for (int i = 0; i < obj.length; i++) {
+            obj[i] = DATA.CUBE_COORDS[i];
+        }
+        float[] center = {0,0,0};
+        float[] mOwnView = new float[16];
+        Matrix.multiplyMM(mOwnView, 0, mView, 0, tab.mModelCube, 0); // don't need to map to eye frame
+        float[] transObj = Utils.getTransformedObj(mOwnView, obj, center);
+
+        Log.i("Points: ", Arrays.toString(transObj));
+        float[] line = {0f, 0f, CAMERA_Z, 0f, 0f, 0f};
+        float[] p = Main.getIntersection(transObj, line);
+        if (p==null)
+            return;
+        float[] utM = new float[16];
+        Matrix.invertM(utM, 0, mOwnView, 0);
+        float[] p2 = new float[4];
+        for (int i = 0; i < p.length; i++) {
+            p2[i] = p[i];
+        }
+        p2[3] = 1;
+        float[] point = new float[4];
+        float[] untranslated = new float[12];
+        for(int i = 0; i < untranslated.length; i+=4) {
+            Matrix.multiplyMV(untranslated, i, utM, 0, transObj, i);
+        }
+        Matrix.multiplyMV(untranslated, 0, utM, 0, transObj, 0);
+        String str2 = String.format("(%f, %f, %f", untranslated[0], untranslated[1], untranslated[2]);
+        Log.i("Point Pos: ", str2);
+
+        Matrix.multiplyMV(point, 0, utM, 0, p2, 0);
+        if (point != null) {
+            String str = String.format("(%f, %f, %f", point[0], point[1], point[2]);
+            Log.i("Click Pos:", str);
+        }
+        //Utils.simulateTouch(this.getCardboardView(), pointX, pointY);
+        // Always give user feedback
+        Display d = getWindowManager().getDefaultDisplay();
+        int w = tab.mWebView.getWidth();
+        int h = tab.mWebView.getHeight();
+        Log.d("Dim: ", String.format("%d, %d", w, h));
+        float[] xy = Utils.getXY(untranslated, point);
+
+        Log.d("click pos: ", String.format("%f, %f, %f, %f", xy[0], xy[1], xy[2], xy[3]));
+        Utils.simulateTouch(tab.mWebView, xy[0], xy[1], xy[2], xy[3]);
+    }
     /**
      * Find a new random position for the object.
      * We'll rotate it around the Y-axis so it's out of sight, and then up or down by a little bit.
@@ -562,10 +752,33 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         Matrix.translateM(newTab.mModelCube, 0, 0, 0, -mObjectDistance);
         // First rotate in XZ plane, between 90 and 270 deg away, and scale so that we vary
         // the object's distance from the user.
-        float angleXZ = (float) -60.0 * (tabs.size()-1);
+
+//        float yaw = angleToOriginalObject(newTab.mModelCube);
+//        Log.e(TAG, "yaw is " + yaw);
+//
+//        int pos = Math.round(yaw/60);
+//        if(pos == -3) pos = 3;
+//        if(pos == -2) pos = 4;
+//        if(pos == -1) pos = 5;
+
+//        if(tabExists[pos]){
+//            if(!tabExists[(pos+1) % tabExists.length]) {
+//                pos = (pos + 1 )% tabExists.length;
+//            } else if(!tabExists[(pos + tabExists.length - 1) % tabExists.length]) {
+//                pos = (pos + tabExists.length - 1) % tabExists.length;
+//            } else {
+//                return;
+//            }
+//        }
+//        tabExists[pos] = true;
+//        int angle = pos*60;
+
+//        Log.e(TAG, "angle is:" + angle);
+
+        float angleXZ = (float) -60 * (tabs.size() -1); //  * (tabs.size()-1);
         Matrix.setRotateM(rotationMatrix, 0, angleXZ, 0f, 1f, 0f);
         Matrix.multiplyMV(posVec, 0, rotationMatrix, 0, newTab.mModelCube, 12);
-//
+
         Matrix.setIdentityM(newTab.mModelCube, 0);
         Matrix.translateM(newTab.mModelCube, 0, posVec[0], posVec[1], posVec[2]);
 
@@ -574,28 +787,47 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         addContentView(newTab.mWebView, new ViewGroup.LayoutParams( TEXTURE_WIDTH, TEXTURE_HEIGHT ) );
     }
 
-    /**
-     * Check if user is looking at object by calculating where the object is in eye-space.
-     * @return
-     */
-    private boolean isLookingAtObject() {
-        if(tabs.size() == 0 ) return true;
+    private float angleToOriginalObject(float[] mModelCube) {
         float[] initVec = {0, 0, 0, 1.0f};
         float[] objPositionVec = new float[4];
 
         // Convert object space to camera space. Use the headView from onNewFrame.
         // TODO(mackyi): loop over all tabs
-        Matrix.multiplyMM(mModelView, 0, mHeadView, 0, tabs.get(0).mModelCube, 0);
+        Matrix.multiplyMM(mModelView, 0, mHeadView, 0, mModelCube, 0);
         Matrix.multiplyMV(objPositionVec, 0, mModelView, 0, initVec, 0);
-
-        float pitch = (float)Math.atan2(objPositionVec[1], -objPositionVec[2]);
-        float yaw = (float)Math.atan2(objPositionVec[0], -objPositionVec[2]);
-
-        Log.i(TAG, "Object position: X: " + objPositionVec[0]
+        Log.e(TAG, "Object position: X: " + objPositionVec[0]
                 + "  Y: " + objPositionVec[1] + " Z: " + objPositionVec[2]);
-        Log.i(TAG, "Object Pitch: " + pitch +"  Yaw: " + yaw);
+        float yaw = 180/(float)Math.PI*(float)Math.atan2(objPositionVec[0], -objPositionVec[2]);
 
-        return (Math.abs(pitch) < PITCH_LIMIT) && (Math.abs(yaw) < YAW_LIMIT);
+        return yaw;
+    }
+    /**
+     * Check if user is looking at object by calculating where the object is in eye-space.
+     * @return
+     */
+    private boolean isLookingAtObject() {
+        // if(tabs.size() == 0 ) return true;
+        float[] initVec = {0, 0, 0, 1.0f};
+        float[] objPositionVec = new float[4];
+
+        // Convert object space to camera space. Use the headView from onNewFrame.
+        // TODO(mackyi): loop over all tabs
+        for(Tab tab: tabs) {
+            Matrix.multiplyMM(mModelView, 0, mHeadView, 0, tab.mModelCube, 0);
+            Matrix.multiplyMV(objPositionVec, 0, mModelView, 0, initVec, 0);
+
+            float pitch = (float)Math.atan2(objPositionVec[1], -objPositionVec[2]);
+            float yaw = (float)Math.atan2(objPositionVec[0], -objPositionVec[2]);
+
+            Log.i(TAG, "Object position: X: " + objPositionVec[0]
+                    + "  Y: " + objPositionVec[1] + " Z: " + objPositionVec[2]);
+            Log.i(TAG, "Object Pitch: " + pitch +"  Yaw: " + yaw);
+
+            if((Math.abs(pitch) < PITCH_LIMIT*3) && (Math.abs(yaw) < YAW_LIMIT*13)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private ScrollStatus scrollStatusForTab(int tab) {
@@ -708,19 +940,27 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         int glTexture =textures[index % textures.length];
 
         if ( glTexture > 0 ) {
-            GLES10.glBindTexture( GLES11Ext.GL_TEXTURE_EXTERNAL_OES, glTexture );
+            if(index >= MAX_TABS) {
+                GLES10.glBindTexture( GLES10.GL_TEXTURE_2D, glTexture );
+            } else {
+                GLES10.glBindTexture( GLES11Ext.GL_TEXTURE_EXTERNAL_OES, glTexture );
+            }
 
             // Notice the use of GL_TEXTURE_2D for texture creation
             GLES10.glTexImage2D( GL10.GL_TEXTURE_2D, 0, GL10.GL_RGB, width, height, 0, GL10.GL_RGB, GL10.GL_UNSIGNED_BYTE, null );
 
-            GLES10.glTexParameterx( GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GL10.GL_TEXTURE_WRAP_S, GL10.GL_CLAMP_TO_EDGE );
+            if(index < MAX_TABS) {
+                GLES10.glTexParameterx( GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GL10.GL_TEXTURE_WRAP_S, GL10.GL_CLAMP_TO_EDGE );
 
-            GLES10.glTexParameterx( GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GL10.GL_TEXTURE_WRAP_T, GL10.GL_CLAMP_TO_EDGE );
+                GLES10.glTexParameterx( GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GL10.GL_TEXTURE_WRAP_T, GL10.GL_CLAMP_TO_EDGE );
 
-            GLES10.glTexParameterx( GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GL10.GL_TEXTURE_MIN_FILTER, GL10.GL_NEAREST );
-            GLES10.glTexParameterx( GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GL10.GL_TEXTURE_MAG_FILTER, GL10.GL_NEAREST );
+                GLES10.glTexParameterx( GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GL10.GL_TEXTURE_MIN_FILTER, GL10.GL_NEAREST );
+                GLES10.glTexParameterx( GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GL10.GL_TEXTURE_MAG_FILTER, GL10.GL_NEAREST );
 
-            GLES10.glBindTexture( GLES11Ext.GL_TEXTURE_EXTERNAL_OES, 0 );
+                GLES10.glBindTexture( GLES11Ext.GL_TEXTURE_EXTERNAL_OES, 0 );
+            } else {
+                GLUtils.texImage2D(GL10.GL_TEXTURE_2D, 0, searchBMap, 0);
+            }
 
             GLES10.glTexParameterf(GL10.GL_TEXTURE_2D,
                     GL10.GL_TEXTURE_MIN_FILTER,
@@ -745,6 +985,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
      */
     private void startVoiceRecognitionActivity()
     {
+        mOverlayView.show3DToast("Waiting for voice input...");
         Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
                 RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
@@ -772,6 +1013,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
                     s = "www.google.com/#q="+s;
                 }
                 System.out.println(s);
+                bestTab.mWebView.loadUrl(s);
             }
         }
         super.onActivityResult(requestCode, resultCode, data);
@@ -801,5 +1043,15 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
             this.surface = new Surface(texture);
             this.mWebView.setSurface(surface);
         }
+    }
+
+    protected void onResume() {
+        super.onResume();
+        mSensorManager.registerListener(this, mSensor, SensorManager.SENSOR_DELAY_NORMAL);
+    }
+
+    protected void onPause() {
+        super.onPause();
+        mSensorManager.unregisterListener(this);
     }
 }
