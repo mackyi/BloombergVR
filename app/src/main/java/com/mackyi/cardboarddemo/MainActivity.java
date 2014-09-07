@@ -22,7 +22,9 @@ import android.opengl.Matrix;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Vibrator;
+import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
 import android.util.Log;
 import android.view.Display;
 import android.view.Surface;
@@ -54,6 +56,11 @@ import java.util.logging.Logger;
  * A Cardboard sample application.
  */
 public class MainActivity extends CardboardActivity implements CardboardView.StereoRenderer {
+    private SensorManager mSensorManager;
+    private Sensor mSensor;
+
+    private SpeechRecognizer sr;
+
     private static final String TAG = "MainActivity";
     private long oldTime = 0;
 
@@ -131,7 +138,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     private int mUVParam2;
     private int mModelViewProjectionParam3;
 
-    private Tab bestTab;
+    private static Tab bestTab;
 
     private Bitmap searchBMap;
 
@@ -216,6 +223,70 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 //        addContentView(tabs.get(0).mWebView, new ViewGroup.LayoutParams( TEXTURE_WIDTH, TEXTURE_HEIGHT ) );
 
         // new Surface( surfaceTexture );
+
+
+
+        sr = SpeechRecognizer.createSpeechRecognizer(this);
+        sr.setRecognitionListener(new Listener());
+    }
+
+    class Listener implements RecognitionListener
+    {
+        public void onReadyForSpeech(Bundle params)
+        {
+            Log.d(TAG, "onReadyForSpeech");
+        }
+        public void onBeginningOfSpeech()
+        {
+            Log.d(TAG, "onBeginningOfSpeech");
+        }
+        public void onRmsChanged(float rmsdB)
+        {
+            Log.d(TAG, "onRmsChanged");
+        }
+        public void onBufferReceived(byte[] buffer)
+        {
+            Log.d(TAG, "onBufferReceived");
+        }
+        public void onEndOfSpeech()
+        {
+            Log.e(TAG, "onEndofSpeech");
+        }
+        public void onError(int error)
+        {
+            Log.e(TAG,  "error " +  error);
+            if(error == 7){
+                mOverlayView.show3DToast("No matches.");
+            }
+        }
+        public void onResults(Bundle results)
+        {
+            String str = new String();
+            Log.e(TAG, "onResults " + results);
+            ArrayList<String> data = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+            String s = data.get(0);
+            if(s.contains(".")){
+                s = "http://" + s.replace(" ", "");
+                mOverlayView.show3DToast("Navigating to: " + s);
+            }else{
+                s = s.replace(" ", "+");
+                mOverlayView.show3DToast("Searching for: " + s);
+                s = "http://www.google.com/#q="+s;
+            }
+            Log.e(TAG, s);
+            bestTab.mWebView.loadUrl(s);
+            Log.e(TAG, tabs.toString());
+            tabs.get(0).mWebView.loadUrl(s);
+        }
+        public void onPartialResults(Bundle partialResults)
+        {
+            Log.d(TAG, "onPartialResults");
+            mOverlayView.show3DToast("...");
+        }
+        public void onEvent(int eventType, Bundle params)
+        {
+            Log.d(TAG, "onEvent " + eventType);
+        }
     }
 
     @Override
@@ -327,7 +398,9 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         GLES20.glEnable(GLES20.GL_DEPTH_TEST);
 
         createTextures(MAX_TABS+1);
-
+        for (int i = 0; i < tabs.size(); i++){
+            tabs.get(i).setTextures(createSurfaceTexture(TEXTURE_WIDTH, TEXTURE_HEIGHT, i));
+        }
 
         searchBMap = BitmapFactory.decodeResource(getResources(), R.drawable.blackbox);
         createSurfaceTexture(searchBMap.getWidth(), searchBMap.getHeight(), MAX_TABS);
@@ -625,15 +698,15 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         float[] centerOfView = {0,0,0};
         if(tabs.size() == 0 || timeClicked - oldTime < 1000){
             addNewTab();
-            return;
-        }
-        bestTab = getTab(tabs, eye, centerOfView);
-        if(inBounds(bestTab, eye, centerOfView)) {
-            processClick(bestTab);
         } else {
-            Log.d("Speech", "SPEECH MODE DUMMY OUTPUT");
-            startVoiceRecognitionActivity();
-            // put your speech call here
+            bestTab = getTab(tabs, eye, centerOfView);
+            if(inBounds(bestTab, eye, centerOfView)) {
+                processClick(bestTab);
+            } else {
+                Log.d("Speech", "SPEECH MODE DUMMY OUTPUT");
+                startVoiceRecognitionActivity();
+                // put your speech call here
+            }
         }
         oldTime = timeClicked;
         /*if (!isLookingAtObject()) {
@@ -960,11 +1033,15 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     private void startVoiceRecognitionActivity()
     {
         mOverlayView.show3DToast("Waiting for voice input...");
+
         Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
-                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-        intent.putExtra(RecognizerIntent.EXTRA_PROMPT, "Voice recognition Demo...");
-        startActivityForResult(intent, REQUEST_CODE);
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        sr.startListening(intent);
+
+//        Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH_HANDS_FREE);
+//        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL,
+//                RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+//        startActivityForResult(intent, REQUEST_CODE);
     }
 
     /**
@@ -973,8 +1050,10 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data)
     {
+        Log.e(TAG, "back from speech");
         if (requestCode == REQUEST_CODE && resultCode == RESULT_OK)
         {
+            Log.e(TAG, "back from speech ok");
             // Populate the wordsList with the String values the recognition engine thought it heard
             ArrayList<String> matches = data.getStringArrayListExtra(
                     RecognizerIntent.EXTRA_RESULTS);
@@ -995,7 +1074,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
                     s = s.replace(" ", "+");
                     s = "www.google.com/#q="+s;
                 }
-                Log.d("URL string: ", s);
+                Log.e(TAG, s);
                 bestTab.mWebView.loadUrl(s);
             }
         }
@@ -1026,5 +1105,16 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
             this.surface = new Surface(texture);
             this.mWebView.setSurface(surface);
         }
+    }
+
+
+    protected void onResume() {
+        super.onResume();
+        getCardboardView().onResume();
+    }
+
+    protected void onPause() {
+        super.onPause();
+        getCardboardView().onPause();
     }
 }
