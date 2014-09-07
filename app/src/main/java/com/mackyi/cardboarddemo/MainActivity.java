@@ -8,6 +8,7 @@ import android.graphics.BitmapFactory;
 import android.graphics.Canvas;
 import android.graphics.Rect;
 import android.graphics.SurfaceTexture;
+import android.hardware.SensorEvent;
 import android.opengl.GLES10;
 import android.opengl.GLES11Ext;
 import android.opengl.GLES20;
@@ -45,8 +46,11 @@ import java.util.logging.Logger;
 /**
  * A Cardboard sample application.
  */
-public class MainActivity extends CardboardActivity implements CardboardView.StereoRenderer {
-    private static final String TAG = "MainActivity";
+public class MainActivity extends CardboardActivity implements CardboardView.StereoRenderer, SensorEventListener {
+    private SensorManager mSensorManager;
+    private Sensor mSensor;
+	
+	private static final String TAG = "MainActivity";
 
     private static final int MAX_TABS = 6;
     private static final int SCROLL_SPEED = 100;
@@ -195,7 +199,11 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
         // new Surface( surfaceTexture );
 
-
+        /*
+         * Attach our accelerometer sensor
+         */
+        mSensorManager = (SensorManager) getSystemService(Context.SENSOR_SERVICE);
+        mSensor = mSensorManager.getDefaultSensor(Sensor.TYPE_ACCELEROMETER);
     }
 
     @Override
@@ -777,6 +785,13 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         super.onActivityResult(requestCode, resultCode, data);
     }
 
+    public void onSensorChanged(SensorEvent e) {
+		float x_accel = e.values[0];
+		if (x_accel > 25) {
+			addNewTab();
+		}
+	}
+    
     ArrayList<Tab> tabs = new ArrayList<Tab>();
 
     public class Tab {
