@@ -120,6 +120,4 @@ public class Utils {
 
         //view.dispatchTouchEvent(motionEvent);
 	}
-
-    
 }

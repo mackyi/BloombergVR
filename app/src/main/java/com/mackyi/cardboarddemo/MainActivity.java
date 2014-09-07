@@ -503,28 +503,13 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         }
         //Utils.simulateTouch(this.getCardboardView(), pointX, pointY);
         // Always give user feedback
-        Display d = getWindowManager().getDefaultDisplay();
-        int w = mWebView.getWidth();
-        int h = mWebView.getHeight();
-        Log.d("Dim: ", String.format("%d, %d", w, h));
         float[] xy = Utils.getXY(untranslated, point);
 
         Log.d("click pos: ", String.format("%f, %f, %f, %f", xy[0], xy[1], xy[2], xy[3]));
         Utils.simulateTouch(mWebView, xy[0], xy[1], xy[2], xy[3]);
         mVibrator.vibrate(50);
     }
-    @Override
-    public boolean onTouchEvent(MotionEvent event) {
-        int x = (int)event.getX();
-        int y = (int)event.getY();
-        Log.d("debug", String.format("%d, %d", x, y));
-        switch (event.getAction()) {
-            case MotionEvent.ACTION_DOWN:
-            case MotionEvent.ACTION_MOVE:
-            case MotionEvent.ACTION_UP:
-        }
-        return false;
-    }
+
     /**
      * Find a new random position for the object.
      * We'll rotate it around the Y-axis so it's out of sight, and then up or down by a little bit.
@@ -550,6 +535,32 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
 
         Matrix.setIdentityM(mModelCube, 0);
         Matrix.translateM(mModelCube, 0, posVec[0], newY, posVec[2]);
+    }
+
+
+    public Tab getTab(ArrayList<Tab> tabs, float[] eye, float[] centerOfView) {
+        if (tabs == null || tabs.size() == 0) {
+            return null;
+        }
+        float best_angle = 1;
+        int best_tab = 0;
+        float[] mOwnView = new float[16];
+        float[] centerOfCube = new float[4];
+        float[] cubeStart = {0,0,0};
+        float[] centerOfCube_3 = new float[3];
+        for (int i = 0; i < tabs.size(); i++) {
+            Matrix.multiplyMM(mOwnView, 0, mView, 0, tabs.get(i).mModelCube, 0);
+            Matrix.multiplyMV(centerOfCube, 0, mOwnView, 0, cubeStart, 0);
+            centerOfCube_3[0] = centerOfCube[0];
+            centerOfCube_3[1] = centerOfCube[1];
+            centerOfCube_3[2] = centerOfCube[2];
+            float angle = Main.getCos(Main.subtract(centerOfView, eye), centerOfCube_3);
+            if (angle < best_angle) {
+                best_tab = i;
+                best_angle = angle;
+            }
+        }
+        return tabs.get(best_tab);
     }
 
     /**
