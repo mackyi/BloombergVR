@@ -537,8 +537,7 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         Matrix.translateM(mModelCube, 0, posVec[0], newY, posVec[2]);
     }
 
-
-    public Tab getTab(ArrayList<Tab> tabs, float[] eye, float[] centerOfView) {
+    public Tab getTab(Object inBound, ArrayList<Tab> tabs, float[] eye, float[] centerOfView) {
         if (tabs == null || tabs.size() == 0) {
             return null;
         }
@@ -548,13 +547,14 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         float[] centerOfCube = new float[4];
         float[] cubeStart = {0,0,0};
         float[] centerOfCube_3 = new float[3];
+        float[] viewLine = Main.subtract(centerOfView, eye);
         for (int i = 0; i < tabs.size(); i++) {
             Matrix.multiplyMM(mOwnView, 0, mView, 0, tabs.get(i).mModelCube, 0);
             Matrix.multiplyMV(centerOfCube, 0, mOwnView, 0, cubeStart, 0);
             centerOfCube_3[0] = centerOfCube[0];
             centerOfCube_3[1] = centerOfCube[1];
             centerOfCube_3[2] = centerOfCube[2];
-            float angle = Main.getCos(Main.subtract(centerOfView, eye), centerOfCube_3);
+            float angle = Main.getCos(viewLine, centerOfCube_3);
             if (angle < best_angle) {
                 best_tab = i;
                 best_angle = angle;
@@ -563,6 +563,58 @@ public class MainActivity extends CardboardActivity implements CardboardView.Ste
         return tabs.get(best_tab);
     }
 
+    public boolean inBounds(Tab t, float[] eye, float[] centerOfView) {
+        float[] viewLine = Main.subtract(centerOfView, eye);
+        float[] obj = new float[9];
+        for (int i = 0; i < obj.length; i++) {
+            obj[i] = DATA.CUBE_COORDS[i];
+        }
+        float[] mOwnView = new float[16];
+        float[] center = {0,0,0};
+        Matrix.multiplyMM(mOwnView, 0, mView, 0, t.mModelCube, 0); // don't need to map to eye frame
+        float[] transObj = Utils.getTransformedObj(mOwnView, obj, center);
+        float[] line = new float[6];
+        line[0] = eye[0];
+        line[1] = eye[1];
+        line[2] = eye[2];
+        line[3] = centerOfView[3];
+        line[4] = centerOfView[4];
+        line[5] = centerOfView[5];
+        float[] p = Main.getIntersection(transObj, line);
+        if (p==null)
+            return false;
+        float[] utM = new float[16];
+        Matrix.invertM(utM, 0, mOwnView, 0);
+        float[] p2 = new float[4];
+        for (int i = 0; i < p.length; i++) {
+            p2[i] = p[i];
+        }
+        p2[3] = 1;
+
+        float[] point = new float[4];
+        float[] untranslated = new float[12];
+        for(int i = 0; i < untranslated.length; i+=4) {
+            Matrix.multiplyMV(untranslated, i, utM, 0, transObj, i);
+        }
+        Matrix.multiplyMV(untranslated, 0, utM, 0, transObj, 0);
+
+        Matrix.multiplyMV(point, 0, utM, 0, p2, 0);
+        if (point != null) {
+            String str = String.format("(%f, %f, %f", point[0], point[1], point[2]);
+            Log.i("CubeBound Pos:", str);
+        }
+        //Utils.simulateTouch(this.getCardboardView(), pointX, pointY);
+        // Always give user feedback
+        float[] xy = Utils.getXY(untranslated, point);
+
+        Log.d("Bound pos: ", String.format("%f, %f, %f, %f", xy[0], xy[1], xy[2], xy[3]));
+
+        // safe boundary of 1f
+        if (xy[1] < -1f || xy[1] > xy[3] + 1f) {
+            return true;
+        }
+        return false;
+    }
     /**
      * Check if user is looking at object by calculating where the object is in eye-space.
      * @return
